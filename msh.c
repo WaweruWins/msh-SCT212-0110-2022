@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 int parse_line(char *line, char **argv, int max);
 int run_builtin(char **args, int argc, int *status, int *should_exit);
@@ -41,6 +42,31 @@ int main(void)
             if (arg_c == 0)
                 continue;
         }
+        char *outfile = NULL;
+        int bad_redirect = 0;
+        for (int i = 0; i < arg_c; i++)
+        {
+            if (strcmp(my_args[i], ">") == 0)
+            {
+                if (i + 1 >= arg_c)
+                {
+                    fprintf(stderr, "msh: missing file name after >\n");
+                    bad_redirect = 1;
+                }
+                else
+                {
+                    outfile = my_args[i + 1];
+                }
+                my_args[i] = NULL; /* command ends before ">" */
+                arg_c = i;
+                break;
+            }
+        }
+        if (bad_redirect || arg_c == 0)
+        {
+            last_status = 2;
+            continue;
+        }
         int should_exit = 0;
         if (run_builtin(my_args, arg_c, &last_status, &should_exit))
         {
@@ -60,6 +86,21 @@ int main(void)
         { /* child */
             if (!background)
                 signal(SIGINT, SIG_DFL);
+            if (outfile != NULL)
+            {
+                int fd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (fd < 0)
+                {
+                    perror(outfile);
+                    _exit(1);
+                }
+                if (dup2(fd, STDOUT_FILENO) < 0)
+                {
+                    perror("dup2");
+                    _exit(1);
+                }
+                close(fd); /* fd 1 now points to the file; the extra copy is closed */
+            }
             execvp(my_args[0], my_args);
             perror(my_args[0]); /* only reached if exec failed */
             _exit(127);
@@ -146,10 +187,12 @@ int run_builtin(char **args, int argc, int *status, int *should_exit)
     return 0;
 }
 
-void reap_background(void){
+void reap_background(void)
+{
     int st;
     pid_t pid;
-    while ((pid = waitpid(-1, &st, WNOHANG)) > 0){
+    while ((pid = waitpid(-1, &st, WNOHANG)) > 0)
+    {
         if (WIFEXITED(st))
             printf("[%d] done, status %d\n", pid, WEXITSTATUS(st));
         else if (WIFSIGNALED(st))
