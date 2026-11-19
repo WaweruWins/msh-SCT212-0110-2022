@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 
 int parse_line(char *line, char **argv, int max);
+int run_builtin(char **args, int argc, int *status, int *should_exit);
 
 int main(void)
 {
@@ -31,7 +32,12 @@ int main(void)
         int arg_c = parse_line(my_buffer, my_args, 64);
         if (arg_c == 0)
             continue;
-
+        int should_exit = 0;
+        if (run_builtin(my_args, arg_c, &last_status, &should_exit)){
+            if (should_exit)
+                break;
+            continue;
+        }
         pid_t pid = fork();
         if (pid < 0)
         {
@@ -80,4 +86,36 @@ int parse_line(char *line, char **argv, int max)
     }
     argv[count] = NULL;
     return count;
+}
+int run_builtin(char **args, int argc, int *status, int *should_exit){
+    if (strcmp(args[0], "exit") == 0){
+        *should_exit = 1;
+        return 1;
+    }
+    if (strcmp(args[0], "cd") == 0){
+        const char *dir = (argc > 1) ? args[1] : getenv("HOME");
+        if (dir == NULL){
+            fprintf(stderr, "cd: HOME not set\n");
+            *status = 1;
+        } else if (chdir(dir) != 0){
+            perror("cd");
+            *status = 1;
+        } else {
+            *status = 0;
+        }
+        return 1;
+    }
+    if (strcmp(args[0], "help") == 0){
+        printf("msh - a minimal shell\n"
+               "Built-ins:\n"
+               "  cd [dir]   change directory (no dir: go to $HOME)\n"
+               "  help       show this message\n"
+               "  exit       leave the shell\n"
+               "Other commands run as child processes.\n"
+               "  cmd &      run in the background\n"
+               "  cmd > f    send output to file f\n");
+        *status = 0;
+        return 1;
+    }
+    return 0;      /* not a built-in */
 }
