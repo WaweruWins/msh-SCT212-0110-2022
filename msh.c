@@ -13,11 +13,12 @@ int main(void)
 
     char *my_buffer = NULL;
     size_t collected_bytes_len = 0;
+    int last_status = 0;
     /*loop to print the shell flushing
     prompt and collect the whole line*/
     while (1)
     {
-        printf("msh> ");
+        printf("msh[%d]> ", last_status);
         fflush(stdout);
         // collecting all what was typed in the line
         if ((getline(&my_buffer, &collected_bytes_len, stdin)) == -1)
@@ -35,6 +36,7 @@ int main(void)
         if (pid < 0)
         {
             perror("fork");
+            last_status = 1;
             continue;
         }
 
@@ -49,7 +51,15 @@ int main(void)
         if (waitpid(pid, &status, 0) < 0)
         {
             perror("waitpid");
+            last_status = 1;
             continue;
+        }
+        if (WIFEXITED(status))
+            last_status = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status))
+        {
+            last_status = 128 + WTERMSIG(status);
+            printf("\n");
         }
     }
     free(my_buffer);
